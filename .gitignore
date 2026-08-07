@@ -1,0 +1,13 @@
+# Build output
+/trackfusion
+/bin/
+
+# OpenSky credentials
+.env
+
+# Measurement logs
+*.jsonl
+
+# Parked work, not part of the build
+/_reference-geo/
+.DS_Store
