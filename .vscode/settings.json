@@ -1,0 +1,32 @@
+{
+  "go.useLanguageServer": true,
+
+  "[go]": {
+    "editor.defaultFormatter": "golang.go",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+
+  "gopls": {
+    // Flag unused parameters, unused writes, and shadowed variables beyond
+    // what go vet catches.
+    "ui.diagnostic.staticcheck": false,
+    "ui.diagnostic.analyses": {
+      "unusedparams": true,
+      "unusedwrite": true,
+      "shadow": true
+    },
+    // Show inferred types and parameter names inline. Useful in the filter
+    // code, where nearly everything is a float64 and the compiler will not
+    // help you notice you passed the wrong one.
+    "ui.inlayhint.hints": {
+      "assignVariableTypes": true,
+      "compositeLiteralFields": true,
+      "constantValues": true,
+      "functionTypeParameters": true,
+      "parameterNames": true
+    }
+  }
+}

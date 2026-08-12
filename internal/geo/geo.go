@@ -9,6 +9,19 @@
 // Cartesian, so straight-line flight is a straight line in the state space.
 package geo
 
+import (
+	"math"
+	"fmt"
+)
+
+const (
+	semiMajorAxis = 6378137.0
+	flattening    = 1.0 / 298.257223563
+	semiMinorAxis = semiMajorAxis * (1.0 - flattening)
+	ecc2          = flattening * (2.0 - flattening)
+)
+
+
 // Geodetic is a WGS84 position. Lat and Lon are degrees, Alt is meters above
 // the ellipsoid.
 //
@@ -45,11 +58,27 @@ type ENU struct {
 // position and the sin/cos of its lat/lon at construction means converting a
 // measurement costs no trig, which matters because ToENU runs once per
 // measurement per sensor.
-type Frame struct{}
+type Frame struct {
+	origin Geodetic
+	center ECEF
+	sinLat, cosLat, sinLon, cosLon float64
+}
 
 // NewFrame returns the tangent plane anchored at the given geodetic origin.
 func NewFrame(origin Geodetic) Frame {
-	panic("TODO: internal/geo NewFrame")
+	
+	// Go's math package expects radians not degrees.
+	sinLat, cosLat := math.Sincos(origin.Lat * math.Pi / 180)
+	sinLon, cosLon := math.Sincos(origin.Lon * math.Pi / 180)
+
+	return Frame{
+		origin: origin,
+		center: origin.ECEF(),
+		sinLat: sinLat,
+		cosLat: cosLat,
+		sinLon: sinLon,
+		cosLon: cosLon,
+	}
 }
 
 // ECEF converts a geodetic position to Earth-centered Earth-fixed coordinates.
@@ -57,7 +86,20 @@ func NewFrame(origin Geodetic) Frame {
 // TODO: closed form. The one derived quantity is the prime vertical radius of
 // curvature N = a / sqrt(1 - e² sin²φ).
 func (g Geodetic) ECEF() ECEF {
-	panic("TODO: internal/geo Geodetic.ECEF")
+	latRad := g.Lat * math.Pi / 180
+	lonRad := g.Lon * math.Pi / 180
+	sinLat := math.Sin(latRad);
+
+	N := semiMajorAxis / math.Sqrt(1 - ecc2 * sinLat * sinLat);
+
+	// Distance from polar axis
+	P := (N + g.Alt) * math.Cos(g.Lat * math.Pi / 180)
+
+	return ECEF{
+		X: P * math.Cos(lonRad),
+		Y: P * math.Sin(lonRad),
+		Z: (N * (1-ecc2) + g.Alt) * math.Sin(latRad),
+	}
 }
 
 // Geodetic converts an ECEF position back to WGS84 lat, lon, and ellipsoidal
@@ -78,13 +120,21 @@ func (c ECEF) Geodetic() Geodetic {
 
 // ECEFToENU expresses an ECEF position in the frame's tangent plane.
 func (f Frame) ECEFToENU(c ECEF) ENU {
-	panic("TODO: internal/geo Frame.ECEFToENU")
+	dx := c.X - f.center.X
+	dy := c.Y - f.center.Y
+	dz := c.Z - f.center.Z
+
+	return ENU{
+		E: -1 * f.sinLon * dx + f.cosLon * dy,
+		N: -1 * f.sinLat * f.cosLon * dx - f.sinLat * f.sinLon * dy + f.cosLat * dz,
+		U: f.cosLat * f.cosLon * dx + f.cosLat * f.sinLon * dy + f.sinLat * dz,
+	}
 }
 
 // ENUToECEF is the inverse of ECEFToENU. The rotation is orthonormal, so
 // undoing it is its transpose.
 func (f Frame) ENUToECEF(p ENU) ECEF {
-	panic("TODO: internal/geo Frame.ENUToECEF")
+	
 }
 
 // ToENU converts a geodetic position into the frame's tangent plane. This is
