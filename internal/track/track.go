@@ -24,7 +24,14 @@ type Measurement struct {
 // track can be holding the wrong aircraft, and counting how often that happens
 // is the point of the project.
 type Track struct {
-	ID          int64
+	ID int64
+
+	// Identity is the ADS-B address this track is believed to be holding, or
+	// empty for a track built only from radar. It is what lets a cooperative
+	// report skip association entirely, and it is a belief like any other: a
+	// track can be holding the wrong one.
+	Identity string
+
 	State       filter.State
 	LastUpdate  time.Time
 	MissCounter int64
@@ -69,6 +76,7 @@ func (s *Store) Spawn(m Measurement) *Track {
 
 	t := &Track{
 		ID:          id,
+		Identity:    m.Identity,
 		State:       state,
 		LastUpdate:  m.TimeStamp,
 		MissCounter: 0,
