@@ -53,11 +53,63 @@ Tracks are sensor-agnostic. A track does not know or care which sensor produced 
 
 Everything runs in a local East-North-Up tangent plane rather than in latitude and longitude. A constant-velocity model needs a Cartesian frame to be linear in, and over a bounded region the projection error is small enough to ignore.
 
-Every measurement that enters the system is written to a JSONL log, and the whole pipeline can be re-run from that log instead of from the live feed. This is the piece I care most about. Without it, "did that change improve anything" is answered by watching a map and forming an impression. With it, the same traffic can be replayed against two versions of the associator and the ID swap counts compared directly.
+Every scan that enters the system is written to a JSONL log, and the whole pipeline can be re-run from that log instead of from the live feed. This is the piece I care most about. Without it, "did that change improve anything" is answered by watching a map and forming an impression. With it the same traffic goes through two versions of the associator with the same aircraft, the same noise and the same dropouts, so the only thing that differs between the two pictures is the change.
+
+The unit written is a scan and not a measurement, because a sweep that saw nothing is itself a fact: it means every track missed. Each observation also carries the identity of whatever actually produced it, including nothing at all for clutter. The tracker never sees that field — the only way into the estimator strips it — but it is there in the log, so a recording can be opened afterwards and asked what really happened, which is not a question the measurements alone can answer.
 
 ## Running it
 
-Not yet. Once the OpenSky client lands, this section will cover credentials, the bounding box config, and replay usage.
+```
+go build ./cmd/trackfusion
+```
+
+### Live
+
+OpenSky moved to OAuth2 client credentials in March 2026, so a username and password will not work. Create an API client in your account settings and put the pair in the environment:
+
+```
+export OPENSKY_CLIENT_ID=...
+export OPENSKY_CLIENT_SECRET=...
+```
+
+Then pick a centre and a half-width. The origin doubles as the tracking frame's tangent point and as the position of the simulated radar, so everything is measured from there:
+
+```
+./trackfusion -lat 51.47 -lon -0.4543 -radius 120 -record run.jsonl
+```
+
+Without credentials it polls anonymously, which works but on an allowance small enough that a long run will exhaust it. That is why `-poll` defaults to ten seconds rather than the five the feed actually updates at.
+
+### Replay
+
+```
+./trackfusion -replay run.jsonl
+```
+
+No network and no dice: the radar is not re-run, because its returns are already in the log. The same recording through the same build gives the same answer every time.
+
+### Tuning
+
+The flags worth knowing are the ones that change what the tracker believes rather than where it points.
+
+| Flag | Default | What moving it does |
+|---|---|---|
+| `-gate` | 13.8 | How far a return may sit from a prediction and still be considered, in units of the track's own uncertainty. Lower strands aircraft after a gap; higher lets clutter into established tracks. |
+| `-margin` | 2.0 | How much worse the runner-up pairing must be before the winner is trusted. Zero takes every winner, however close the call. |
+| `-q` | 3.0 | How much manoeuvring the filter expects. Too low and turns are smoothed away, too high and the gate never tightens. |
+| `-max-misses` | 4 | Scans a track may go unmatched before it is dropped. Must exceed what `-radar-pd` will throw at it. |
+| `-radar-pd` | 0.9 | Chance the radar sees a given aircraft on a given sweep. |
+| `-radar-clutter` | 2 | Mean false returns per sweep. |
+| `-radar-bearing-sigma` | 0.5° | Bearing error. This is the one that makes the gate's shape matter: it is an angle, so what it costs in metres grows with range. |
+| `-seed` | 1 | Radar noise seed. The same seed over the same traffic gives the same returns. |
+
+### Tests
+
+```
+go test ./...
+```
+
+The filter and the assignment solver are checked against slow, obvious implementations of the same arithmetic rather than against expected numbers, since both are hand-unrolled by index and a transposed subscript there produces an answer that still looks plausible.
 
 ## References
 
