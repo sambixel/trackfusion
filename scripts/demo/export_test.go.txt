@@ -1,0 +1,71 @@
+package main
+
+import (
+ "encoding/json"
+ "math"
+ "os"
+ "path/filepath"
+ "testing"
+ "time"
+
+ "github.com/sambixel/trackfusion/internal/assoc"
+ "github.com/sambixel/trackfusion/internal/filter"
+ "github.com/sambixel/trackfusion/internal/geo"
+ "github.com/sambixel/trackfusion/internal/radar"
+ "github.com/sambixel/trackfusion/internal/record"
+ "github.com/sambixel/trackfusion/internal/track"
+)
+
+// This harness is overlaid onto engine_test.go only during export. It runs
+// the unchanged production Engine, filter, association, radar, and recorder.
+func TestExportRecruiterDemo(t *testing.T) {
+ out := os.Getenv("TRACKFUSION_DEMO_OUT")
+ if out == "" { t.Fatal("TRACKFUSION_DEMO_OUT is required") }
+ if err := os.MkdirAll(out, 0755); err != nil { t.Fatal(err) }
+ f, err := os.Create(filepath.Join(out, "scenario.jsonl")); if err != nil { t.Fatal(err) }; defer f.Close()
+ w := record.NewWriter(f)
+ epoch := time.Date(2026,9,21,12,0,0,0,time.UTC)
+ e := &Engine{Filter: filter.Filter{ProcessNoise:3}, Store:track.NewStore(), Assoc:assoc.Config{GateThreshold:13.8,AmbiguityMargin:2}, MaxMisses:4}
+ truth := []radar.Truth{
+  {ID:"aaa111", Position:geo.ENU{E:-16000,N:-7000,U:10000}, Velocity:[2]float64{200,70},Time:epoch},
+  {ID:"bbb222", Position:geo.ENU{E:16000,N:6000,U:11000}, Velocity:[2]float64{-200,-45},Time:epoch},
+ }
+ sensor := radar.New(geo.ENU{}, radar.Config{Period:4*time.Second,MaxRangeM:24000,SigmaRangeM:65,SigmaBearingRad:0.5*math.Pi/180,Pd:1,ClutterRate:1.5},21)
+ type point struct { ID string; E,N float64 }
+ type frame struct { Seconds int; Tracks []track.Track; Truth []point; Observations []record.Observation; Stats Stats; Gap bool }
+ frames := []frame{}
+ step := func(s record.Scan) Stats { if err:=w.Write(s);err!=nil{t.Fatal(err)}; return e.Step(s) }
+ var errors []float64
+ for i:=0;i<=40;i++ {
+  seconds:=i*4; at:=epoch.Add(time.Duration(seconds)*time.Second)
+  gap:=i>=25&&i<=27
+  truthNow:=[]point{}
+  for _,a:=range truth {truthNow=append(truthNow,point{a.ID,a.Position.E+a.Velocity[0]*float64(seconds),a.Position.N+a.Velocity[1]*float64(seconds)})}
+  if i==0 {
+   measurements:=[]track.Measurement{}
+   for _,p:=range truthNow {measurements=append(measurements,track.Measurement{TimeStamp:at,Identity:p.ID,Position:geo.ENU{E:p.E,N:p.N,U:10000},R:[2][2]float64{{625,0},{0,625}}})}
+   step(record.NewScan(record.ADSB,at,measurements,[]string{"aaa111","bbb222"}))
+  }
+  measurements:=[]track.Measurement{}; labels:=[]string{}
+  for _,r:=range sensor.Sweep(at,truth) {
+   if gap&&r.Truth=="aaa111" {continue}
+   measurements=append(measurements,r.Meas);labels=append(labels,r.Truth)
+  }
+  s:=record.NewScan(record.Radar,at,measurements,labels)
+  stats:=step(s)
+  tracks:=[]track.Track{}
+  for _,tr:=range e.Store.All(){tracks=append(tracks,*tr)}
+  for _,p:=range truthNow {
+   found:=false
+   for _,tr:=range tracks {if tr.Identity==p.ID {found=true; if i>=3 {errors=append(errors,math.Hypot(tr.State.X[0]-p.E,tr.State.X[1]-p.N))}}}
+   if !found {t.Fatalf("lost identity %s at %ds",p.ID,seconds)}
+  }
+  frames=append(frames,frame{seconds,tracks,truthNow,s.Obs,stats,gap})
+ }
+ if err:=w.Close();err!=nil{t.Fatal(err)}
+ sum:=0.0;for _,x:=range errors {sum+=x*x}
+ payload:=map[string]any{"frames":frames,"position_rmse_m":math.Sqrt(sum/float64(len(errors))),"seed":21,"note":"Synthetic scenario; initial ADS-B fix followed by radar. Three deliberately omitted detections for aaa111. Uses unchanged production Engine. RMSE covers identified tracks after the first 12 seconds."}
+ b,err:=json.MarshalIndent(payload,"","  ");if err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(out,"trace.json"),b,0644);err!=nil{t.Fatal(err)}
+ t.Logf("Exported %d frames; identified-track RMSE %.1fm",len(frames),math.Sqrt(sum/float64(len(errors))))
+}
