@@ -2,6 +2,11 @@
 
 A real-time multi-sensor air track fusion engine in Go. It ingests live ADS-B state vectors from the OpenSky Network, fuses them with a simulated radar sensor over the same airspace, and maintains one continuous set of tracks across everything flying in a bounded region.
 
+[![Watch the TrackFusion demo](output/demo/poster-technical.jpg)](https://www.youtube.com/watch?v=rsT3QUFWdKc)
+
+**Watch the 51-second demo:** simulated sensor inputs processed by
+the actual Go tracking engine.
+
 ## Why this exists
 
 I wanted to understand how a system takes several asynchronous, incomplete, disagreeing streams of sensor data and produces a single coherent picture of what is actually out there. That problem shows up in air traffic control, maritime tracking, battle management, and anything else where you have more sensors than certainty. Reading about it was not getting me anywhere, so I decided to build one.
